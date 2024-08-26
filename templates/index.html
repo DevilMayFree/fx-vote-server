@@ -53,35 +53,66 @@
         button:hover {
             background-color: #45a049;
         }
-
     </style>
 </head>
 <body>
 <h1>投票后台管理</h1>
-<form method="POST" action="/api/setVote">
-    <table>
-        <thead>
-        <tr>
-            <th>序号</th>
-            <th>名称</th>
-            <th>值</th>
-        </tr>
-        </thead>
-        <tbody>
-        {{range $index, $value := .dataList}}
-        <tr>
-            <td>{{$index}}</td>
-            <td>
-                {{$value.Name}}
-            </td>
-            <td>
-                <input type="text" name="value{{$index}}" value="{{$value.Value}}" />
-            </td>
-        </tr>
-        {{end}}
-        </tbody>
-    </table>
-    <button type="submit" class="save-btn">一键保存</button>
-</form>
+<table>
+    <thead>
+    <tr>
+        <th>序号</th>
+        <th>名称</th>
+        <th>值</th>
+    </tr>
+    </thead>
+    <tbody id="data-list">
+    {{range $index, $value := .dataList}}
+    <tr>
+        <td>{{$index}}</td>
+        <td>{{$value.Name}}</td>
+        <td>
+            <input type="text" id="value{{$index}}" value="{{$value.Value}}" />
+        </td>
+    </tr>
+    {{end}}
+    </tbody>
+</table>
+<button onclick="submitData()">一键保存</button>
+
+<script>
+    function submitData() {
+        var dataList = [];
+        var rows = document.querySelectorAll('#data-list tr');
+        rows.forEach(function(row, index) {
+            var value = row.querySelector('input[id="value' + index + '"]').value;
+            dataList.push(value);
+        });
+
+        var sendData = {
+            list:dataList
+        }
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/setVote', true);
+        xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                var response = JSON.parse(xhr.responseText);
+                console.log('response:',response)
+                if (response.result === 'success') {
+                    alert('数据已成功保存');
+                } else {
+                    alert('保存数据时出错');
+                }
+            } else {
+                alert('保存数据时出错');
+            }
+        };
+        xhr.onerror = function() {
+            alert('网络错误');
+        };
+        xhr.send(JSON.stringify(sendData));
+    }
+</script>
 </body>
 </html>
