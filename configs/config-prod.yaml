@@ -17,8 +17,7 @@ zap:
   log-in-file: true
 
 redis:
-  address: 139.198.117.100:6379
-  password: CCtv19951231
+  address: 127.0.0.1:6379
   db: 0
 
 gin:
