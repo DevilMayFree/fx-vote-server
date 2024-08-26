@@ -30,7 +30,13 @@ var mu sync.Mutex
 
 // 判断请求是否是接口请求
 func isAPIRequest(path string) bool {
-	return len(path) > 0 && path[0] == '/' && path[1:5] == "api/"
+	if len(path) < 5 {
+		return false
+	}
+	if len(path) > 5 && path[0] == '/' && path[1:5] == "api/" {
+		return true
+	}
+	return false
 }
 
 func runServer() {
