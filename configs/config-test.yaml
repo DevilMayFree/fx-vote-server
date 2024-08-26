@@ -1,0 +1,31 @@
+app:
+  version: 1.0.0
+server:
+  port: 8080
+  name: fx-vote-server
+zap:
+  level: debug
+  prefix: admin-server
+  format: console
+  director: log
+  encode-level: LowercaseColor
+  stacktrace-key: stacktrace
+  max-age: 10
+  show-line: true
+  full-caller: false
+  log-in-console: true
+  log-in-file: true
+
+redis:
+  address: 139.198.117.100:6379
+  password: CCtv19951231
+  db: 0
+
+gin:
+  log-zap: true
+  log-request: true
+  log-stack: true
+
+
+
+
