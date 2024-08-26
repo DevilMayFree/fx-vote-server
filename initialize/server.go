@@ -25,6 +25,12 @@ type VoteRequestData struct {
 	Num string `json:"num"`
 }
 
+type PageData struct {
+	Num   int    `json:"num"`
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 // 创建全局互斥锁
 var mu sync.Mutex
 
@@ -75,8 +81,19 @@ func runServer() {
 		list := app.Redis.LRange(context.Background(), constant.RedisVoteKey, 0, 7)
 		val := list.Val()
 
+		var dataList []PageData
+		for i, item := range val {
+			name := constant.TeacherList[i]
+			d := PageData{
+				Num:   i,
+				Name:  name,
+				Value: item,
+			}
+			dataList = append(dataList, d)
+		}
+
 		c.HTML(http.StatusOK, "index.html", gin.H{
-			"val": val,
+			"dataList": dataList,
 		})
 	})
 
@@ -105,9 +122,6 @@ func runServer() {
 
 		// 投票api
 		api.POST("/vote", func(c *gin.Context) {
-
-			mu.Lock()
-			defer mu.Unlock()
 
 			var data VoteRequestData
 			if err := c.BindJSON(&data); err != nil {
@@ -145,6 +159,9 @@ func runServer() {
 				c.JSON(http.StatusInternalServerError, gin.H{"result": f})
 				return
 			}
+
+			mu.Lock()
+			defer mu.Unlock()
 
 			// 获取指定索引的值
 			index, _ := strconv.Atoi(data.Num)
