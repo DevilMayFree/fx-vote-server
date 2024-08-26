@@ -157,8 +157,7 @@ func runServer() {
 			// 检查 IP 地址是否存在
 			exists, existsErr := app.Redis.SIsMember(context.Background(), constant.RedisIpKey, ip).Result()
 			if existsErr != nil {
-				f, _ := fmt.Printf("Error checking IP existence: %v", existsErr)
-				c.JSON(http.StatusInternalServerError, gin.H{"result": f})
+				c.JSON(http.StatusInternalServerError, gin.H{"result": "ip_exist"})
 				return
 			}
 
