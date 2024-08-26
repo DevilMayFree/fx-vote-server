@@ -3,6 +3,7 @@ package initialize
 import (
 	"context"
 	"errors"
+	"fmt"
 	"fx-vote-server/common/app"
 	"fx-vote-server/common/constant"
 	"github.com/gin-gonic/gin"
@@ -12,11 +13,24 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 )
 
 type SetVoteRequestData struct {
 	List []string `json:"list"`
+}
+
+type VoteRequestData struct {
+	Num string `json:"num"`
+}
+
+// 创建全局互斥锁
+var mu sync.Mutex
+
+// 判断请求是否是接口请求
+func isAPIRequest(path string) bool {
+	return len(path) > 0 && path[0] == '/' && path[1:5] == "api/"
 }
 
 func runServer() {
@@ -31,34 +45,16 @@ func runServer() {
 		"admin": "123456", // username: password
 	}
 
-	// 登录处理
-	routers.POST("/login", func(c *gin.Context) {
-		username := c.PostForm("username")
-		password := c.PostForm("password")
-
-		trimUserName := strings.TrimSpace(username)
-		trimPassword := strings.TrimSpace(password)
-
-		// 验证用户
-		if pass, exists := users[trimUserName]; exists && pass == trimPassword {
-			// 设置会话或 token 这里使用 Cookie 示例
-			c.SetCookie("fx-vote-server", "authenticated", 3600, "/", "", false, true)
-			c.Redirect(http.StatusSeeOther, "/index")
-		} else {
-			// c.JSON(http.StatusUnauthorized, gin.H{"message": "Invalid username or password"})
-			c.HTML(http.StatusOK, "login.html", gin.H{
-				"ErrorMessage": "Invalid username or password",
-			})
-		}
-	})
-
 	// 认证中间件
 	routers.Use(func(c *gin.Context) {
-		cookie, err := c.Cookie("fx-vote-server")
-		if err != nil || cookie != "authenticated" {
-			c.HTML(http.StatusUnauthorized, "login.html", nil)
-			c.Abort()
-			return
+		// 检查请求路径是否以 "/api/" 开头
+		if !isAPIRequest(c.Request.URL.Path) {
+			cookie, err := c.Cookie("fx-vote-server")
+			if err != nil || cookie != "authenticated" {
+				c.HTML(http.StatusUnauthorized, "login.html", nil)
+				c.Abort()
+				return
+			}
 		}
 		c.Next()
 	})
@@ -78,55 +74,144 @@ func runServer() {
 		})
 	})
 
-	// 获取各位当前投票数
-	routers.GET("/getVote", func(c *gin.Context) {
-		list := app.Redis.LRange(context.Background(), constant.RedisVoteKey, 0, 7)
-		val := list.Val()
+	api := routers.Group("/api")
+	{
+		// 登录处理
+		api.POST("/login", func(c *gin.Context) {
+			username := c.PostForm("username")
+			password := c.PostForm("password")
 
-		c.JSON(http.StatusOK, gin.H{
-			"result": val,
+			trimUserName := strings.TrimSpace(username)
+			trimPassword := strings.TrimSpace(password)
+
+			// 验证用户
+			if pass, exists := users[trimUserName]; exists && pass == trimPassword {
+				// 设置会话或 token 这里使用 Cookie 示例
+				c.SetCookie("fx-vote-server", "authenticated", 3600, "/", "", false, true)
+				c.Redirect(http.StatusSeeOther, "/index")
+			} else {
+				// c.JSON(http.StatusUnauthorized, gin.H{"message": "Invalid username or password"})
+				c.HTML(http.StatusOK, "login.html", gin.H{
+					"ErrorMessage": "Invalid username or password",
+				})
+			}
 		})
-	})
 
-	// 设置各位的投票数
-	routers.POST("/setVote", func(c *gin.Context) {
+		// 投票api
+		api.POST("/vote", func(c *gin.Context) {
 
-		var data SetVoteRequestData
-		if err := c.BindJSON(&data); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"bind error": err.Error()})
-			return
-		}
+			mu.Lock()
+			defer mu.Unlock()
 
-		clearErr := app.Redis.Del(context.Background(), constant.RedisVoteKey).Err()
-		if clearErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"clear error": clearErr.Error()})
-		}
+			var data VoteRequestData
+			if err := c.BindJSON(&data); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"bind error": err.Error()})
+				return
+			}
 
-		voteList := data.List
-		err := app.Redis.RPush(context.Background(), constant.RedisVoteKey, voteList).Err()
+			// 客户端ip
+			ip := c.ClientIP()
 
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"set error": err.Error()})
-		}
+			// 检查 IP 地址是否存在
+			exists, existsErr := app.Redis.SIsMember(context.Background(), constant.RedisIpKey, ip).Result()
+			if existsErr != nil {
+				f, _ := fmt.Printf("Error checking IP existence: %v", existsErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"result": f})
+				return
+			}
 
-		c.JSON(http.StatusOK, gin.H{
-			"result": "success",
+			if exists {
+				c.JSON(http.StatusBadRequest, gin.H{"result": "IP address exists"})
+				return
+			}
+
+			// 如果 IP 地址不存在，将其添加到 Redis
+			_, addErr := app.Redis.SAdd(context.Background(), constant.RedisIpKey, ip).Result()
+			if addErr != nil {
+				f, _ := fmt.Printf("Error adding IP to Redis: %v", addErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"result": f})
+				return
+			}
+
+			_, expireErr := app.Redis.Expire(context.Background(), constant.RedisIpKey, constant.RedisIpExpiration).Result()
+			if expireErr != nil {
+				f, _ := fmt.Printf("Error adding IP to Redis: %v", expireErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"result": f})
+				return
+			}
+
+			// 获取指定索引的值
+			index, _ := strconv.Atoi(data.Num)
+			value, lIndexError := app.Redis.LIndex(context.Background(), constant.RedisVoteKey, int64(index)).Result()
+			if lIndexError != nil {
+				f, _ := fmt.Printf("Error getting value at index %d: %v", index, lIndexError)
+				c.JSON(http.StatusInternalServerError, gin.H{"result": f})
+				return
+			}
+
+			// 将值转换为整数并加1
+			intValue, atoiError := strconv.Atoi(value)
+			if atoiError != nil {
+				f, _ := fmt.Printf("Error converting value to integer: %v", atoiError)
+				c.JSON(http.StatusInternalServerError, gin.H{"result": f})
+				return
+			}
+			intValue++
+
+			// 将更新后的值转换回字符串
+			newValue := strconv.Itoa(intValue)
+
+			// 更新列表中的值
+			_, lSetError := app.Redis.LSet(context.Background(), constant.RedisVoteKey, int64(index), newValue).Result()
+			if lSetError != nil {
+				f, _ := fmt.Printf("Error setting value at index %d: %v", index, lSetError)
+				c.JSON(http.StatusInternalServerError, gin.H{"result": f})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"result": "success",
+			})
 		})
-	})
 
-	/*routers.GET("/ping", func(c *gin.Context) {
-		app.Redis.Set(context.Background(), "a", "b", time.Hour)
-		// time.Sleep(10 * time.Second)
-		get := app.Redis.Get(context.Background(), "a").String()
-		app.Log.Info("get redis:", zap.String("get:", get))
-		c.JSON(http.StatusOK, gin.H{
-			"result": "pong",
+		// 获取各位当前投票数
+		api.GET("/getVote", func(c *gin.Context) {
+			list := app.Redis.LRange(context.Background(), constant.RedisVoteKey, 0, 7)
+			val := list.Val()
+
+			c.JSON(http.StatusOK, gin.H{
+				"result": val,
+			})
 		})
-	})
 
-	routers.GET("/err", func(c *gin.Context) {
-		panic("oh error happen")
-	})*/
+		// 设置各位的投票数
+		api.POST("/setVote", func(c *gin.Context) {
+
+			var data SetVoteRequestData
+			if err := c.BindJSON(&data); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"bind error": err.Error()})
+				return
+			}
+
+			clearErr := app.Redis.Del(context.Background(), constant.RedisVoteKey).Err()
+			if clearErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"clear error": clearErr.Error()})
+				return
+			}
+
+			voteList := data.List
+			err := app.Redis.RPush(context.Background(), constant.RedisVoteKey, voteList).Err()
+
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"set error": err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"result": "success",
+			})
+		})
+	}
 
 	p := app.Config.Server.Port
 	port := ":" + strconv.Itoa(p)

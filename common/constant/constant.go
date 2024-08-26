@@ -1,5 +1,7 @@
 package constant
 
+import "time"
+
 const (
 	DEV  = "dev"
 	TEST = "test"
@@ -9,4 +11,8 @@ const (
 	ConfigPathFormat = "configs/config-%s.yaml"
 
 	RedisVoteKey = "vote:key"
+
+	RedisIpKey = "vote:ip_set"
+
+	RedisIpExpiration = 24 * time.Hour
 )
