@@ -7,7 +7,9 @@ import (
 	"fx-vote-server/common/app"
 	"fx-vote-server/common/constant"
 	"github.com/gin-gonic/gin"
+	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -265,6 +267,7 @@ func runServer() {
 		Handler: routers,
 	}
 
+	startCron()
 	app.GinLog.Info("server started listen" + server.Addr)
 	gracefulShutdown(server)
 }
@@ -314,4 +317,35 @@ func releaseRes() {
 			app.GinLog.Info("close Redis success")
 		}
 	}
+}
+
+// 定时清理
+func startCron() {
+	// 初始化定时任务调度器
+	c := cron.New()
+	// 添加定时任务，每天 00:01 执行
+	// _, err := c.AddFunc("0 01 00 ? * *", func() {
+	_, err := c.AddFunc("0 0/3 * * * ?", func() {
+		err := deleteKey()
+		if err != nil {
+			log.Printf("Failed to delete key: %v", err)
+		} else {
+			log.Println("Key deleted successfully.")
+		}
+	})
+	if err != nil {
+		log.Fatalf("Failed to add cron job: %v", err)
+	}
+
+	// 启动定时任务调度器
+	c.Start()
+}
+
+// deleteKey 从 Redis 中删除指定的 key
+func deleteKey() error {
+	_, err := app.Redis.Del(context.Background(), constant.RedisIpKey).Result()
+	if err != nil {
+		return fmt.Errorf("could not delete key %s: %w", constant.RedisIpKey, err)
+	}
+	return nil
 }
