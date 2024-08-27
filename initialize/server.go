@@ -322,7 +322,7 @@ func releaseRes() {
 // 定时清理
 func startCron() {
 	// 初始化定时任务调度器
-	c := cron.New()
+	c := newWithSeconds()
 	// 添加定时任务，每天 00:01 执行
 	// _, err := c.AddFunc("0 01 00 ? * *", func() {
 	_, err := c.AddFunc("0 0/3 * * * ?", func() {
@@ -339,6 +339,13 @@ func startCron() {
 
 	// 启动定时任务调度器
 	c.Start()
+}
+
+// 支持6位cron表达式
+func newWithSeconds() *cron.Cron {
+	secondParser := cron.NewParser(cron.Second | cron.Minute |
+		cron.Hour | cron.Dom | cron.Month | cron.DowOptional | cron.Descriptor)
+	return cron.New(cron.WithParser(secondParser), cron.WithChain())
 }
 
 // deleteKey 从 Redis 中删除指定的 key
