@@ -324,8 +324,8 @@ func startCron() {
 	// 初始化定时任务调度器
 	c := newWithSeconds()
 	// 添加定时任务，每天 00:01 执行
-	// _, err := c.AddFunc("0 01 00 ? * *", func() {
-	_, err := c.AddFunc("0 0/3 * * * ?", func() {
+	_, err := c.AddFunc("0 01 00 ? * *", func() {
+		// _, err := c.AddFunc("0 0/3 * * * ?", func() {
 		err := deleteKey()
 		if err != nil {
 			log.Printf("Failed to delete key: %v", err)
